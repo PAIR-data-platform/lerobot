@@ -98,6 +98,7 @@ def make_dataset(cfg: TrainPipelineConfig) -> LeRobotDataset | MultiLeRobotDatas
             delta_timestamps=delta_timestamps,
             image_transforms=image_transforms,
             tolerance_s=cfg.tolerance_s,
+            preload_episodes=cfg.dataset.preload_episodes,
         )
         if cfg.dataset.use_imagenet_stats:
             for key in dataset.meta.camera_keys:
