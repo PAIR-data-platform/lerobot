@@ -84,22 +84,37 @@ def make_dataset(cfg: TrainPipelineConfig) -> LeRobotDataset | MultiLeRobotDatas
         ImageTransforms(cfg.dataset.image_transforms) if cfg.dataset.image_transforms.enable else None
     )
 
-    if cfg.dataset.use_data_core:
-        from lerobot.datasets.data_core_dataset import DataCoreDataset
-
+    if cfg.dataset.use_data_core or cfg.dataset.use_data_core_streaming:
         ds_meta = LeRobotDatasetMetadata(
             cfg.dataset.repo_id, root=cfg.dataset.root, revision=cfg.dataset.revision
         )
         delta_timestamps = resolve_delta_timestamps(cfg.policy, ds_meta)
-        dataset = DataCoreDataset(
-            repo_id=cfg.dataset.repo_id,
-            root=cfg.dataset.root,
-            episodes=cfg.dataset.episodes,
-            delta_timestamps=delta_timestamps,
-            image_transforms=image_transforms,
-            tolerance_s=cfg.tolerance_s,
-            preload_episodes=cfg.dataset.preload_episodes,
-        )
+
+        if cfg.dataset.use_data_core_streaming:
+            from lerobot.datasets.data_core_streaming_dataset import DataCoreStreamingDataset
+
+            dataset = DataCoreStreamingDataset(
+                repo_id=cfg.dataset.repo_id,
+                root=cfg.dataset.root,
+                episodes=cfg.dataset.episodes,
+                delta_timestamps=delta_timestamps,
+                image_transforms=image_transforms,
+                tolerance_s=cfg.tolerance_s,
+                cache_limit=cfg.dataset.cache_limit,
+            )
+        else:
+            from lerobot.datasets.data_core_dataset import DataCoreDataset
+
+            dataset = DataCoreDataset(
+                repo_id=cfg.dataset.repo_id,
+                root=cfg.dataset.root,
+                episodes=cfg.dataset.episodes,
+                delta_timestamps=delta_timestamps,
+                image_transforms=image_transforms,
+                tolerance_s=cfg.tolerance_s,
+                preload_episodes=cfg.dataset.preload_episodes,
+            )
+
         if cfg.dataset.use_imagenet_stats:
             for key in dataset.meta.camera_keys:
                 for stats_type, stats in IMAGENET_STATS.items():

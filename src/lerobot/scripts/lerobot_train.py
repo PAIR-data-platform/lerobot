@@ -388,18 +388,26 @@ def train(cfg: TrainPipelineConfig, accelerator: Accelerator | None = None):
         shuffle = True
         sampler = None
 
-    # Use fork multiprocessing for data-core COW cache sharing across workers
-    mp_context = "fork" if cfg.dataset.use_data_core and cfg.num_workers > 0 else None
+    # Streaming mode: force num_workers=0 (FFmpeg hangs in forked workers).
+    # COW preload mode: use fork for cache sharing.
+    effective_workers = cfg.num_workers
+    mp_context = None
+    if cfg.dataset.use_data_core_streaming:
+        if cfg.num_workers > 0:
+            logging.info("DataCoreStreaming: overriding num_workers to 0 (FFmpeg not fork-safe)")
+        effective_workers = 0
+    elif cfg.dataset.use_data_core and cfg.num_workers > 0:
+        mp_context = "fork"
 
     dataloader = torch.utils.data.DataLoader(
         dataset,
-        num_workers=cfg.num_workers,
+        num_workers=effective_workers,
         batch_size=cfg.batch_size,
         shuffle=shuffle and not cfg.dataset.streaming,
         sampler=sampler,
         pin_memory=device.type == "cuda",
         drop_last=False,
-        prefetch_factor=2 if cfg.num_workers > 0 else None,
+        prefetch_factor=2 if effective_workers > 0 else None,
         multiprocessing_context=mp_context,
     )
 

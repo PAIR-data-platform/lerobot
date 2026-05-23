@@ -38,6 +38,9 @@ class DatasetConfig:
     use_data_core: bool = False
     # Max episodes to preload into RAM when use_data_core=True (None = all)
     preload_episodes: int | None = None
+    use_data_core_streaming: bool = False
+    # Max episodes to keep in Rust LRU cache (None = unlimited)
+    cache_limit: int | None = None
 
 
 @dataclass
