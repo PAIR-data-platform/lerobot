@@ -149,7 +149,7 @@ class MimicGenEnv(gym.Env):
         if camera_name_mapping is None:
             camera_name_mapping = {
                 "agentview": "image",
-                "robot0_eye_in_hand": "image2",
+                "robot0_eye_in_hand": "wrist_image",
             }
         self.camera_name_mapping = camera_name_mapping
 

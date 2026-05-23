@@ -375,7 +375,7 @@ class MimicGenEnv(EnvConfig):
             ACTION: ACTION,
             "agent_pos": OBS_STATE,
             MIMICGEN_KEY_PIXELS_AGENTVIEW: f"{OBS_IMAGES}.image",
-            MIMICGEN_KEY_PIXELS_EYE_IN_HAND: f"{OBS_IMAGES}.image2",
+            MIMICGEN_KEY_PIXELS_EYE_IN_HAND: f"{OBS_IMAGES}.wrist_image",
         }
     )
 
