@@ -14,16 +14,11 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import io
 import logging
-import threading
-import time
 from pathlib import Path
 
-import numpy as np
+import simplejpeg
 import torch
-import torchvision.transforms.functional as TF
-from PIL import Image
 
 import data_core
 
@@ -107,34 +102,18 @@ class DataCoreStreamingDataset(torch.utils.data.Dataset):
             frame_indices.extend(range(start, safe_end))
         self._frame_indices = frame_indices
 
-        # No upfront preload — episodes decode on-demand and cache in Rust's
-        # internal LRU. Use num_workers=0 to avoid fork (FFmpeg hangs after fork).
-        # A background thread warms the cache while training runs.
-        self._cache_ready = threading.Event()
-        self._bg_thread = threading.Thread(
-            target=self._background_warmup,
-            daemon=True,
-        )
-        self._bg_thread.start()
-
+        # Eager preload into the Rust frozen cache (JPEG bytes, ~119MB/ep at
+        # 480×640×4 cams → ~6GB for 50 eps; fits 32GB RAM with headroom).
+        # FFmpeg only runs here in the main process; forked DataLoader workers
+        # read JPEG bytes from the frozen cache and decode via PIL — no FFmpeg
+        # in workers, so num_workers > 0 is now safe.
         logging.info(
-            f"DataCoreStreamingDataset: {len(self.episodes)} episodes, "
-            f"{len(self._frame_indices)} frames (streaming, background warmup started)"
+            f"DataCoreStreamingDataset: preloading {len(self.episodes)} JPEG-cached episodes..."
         )
-
-    def _background_warmup(self):
-        """Progressively warm the Rust episode cache in a background thread."""
-        ep_meta = self.meta.episodes
-        for i, ep_idx in enumerate(self.episodes):
-            try:
-                start_frame = ep_meta["dataset_from_index"][ep_idx]
-                self.lazy.get_frame(start_frame)
-            except Exception as e:
-                logging.warning(f"Background warmup: episode {ep_idx} failed: {e}")
-            if (i + 1) % 10 == 0:
-                logging.info(f"Background warmup: {i + 1}/{len(self.episodes)} episodes cached")
-        self._cache_ready.set()
-        logging.info("Background warmup: all episodes cached")
+        self.lazy.preload_episodes(self.episodes)
+        logging.info(
+            f"DataCoreStreamingDataset: preload complete ({len(self._frame_indices)} frames)"
+        )
 
     # ------------------------------------------------------------------
     # Properties expected by lerobot_train.py and EpisodeAwareSampler
@@ -182,8 +161,10 @@ class DataCoreStreamingDataset(torch.utils.data.Dataset):
                 if img_bytes is None:
                     continue
 
-                img = Image.open(io.BytesIO(bytes(img_bytes)))
-                tensors.append(TF.to_tensor(img))  # float32 CHW [0,1]
+                # simplejpeg → libjpeg-turbo direct: HWC uint8 ndarray, no PIL.Image wrapper.
+                arr = simplejpeg.decode_jpeg(bytes(img_bytes), colorspace="RGB")
+                t = torch.from_numpy(arr).permute(2, 0, 1).contiguous().to(torch.float32).div_(255.0)
+                tensors.append(t)
 
             if not tensors:
                 continue

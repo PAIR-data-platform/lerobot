@@ -84,13 +84,31 @@ def make_dataset(cfg: TrainPipelineConfig) -> LeRobotDataset | MultiLeRobotDatas
         ImageTransforms(cfg.dataset.image_transforms) if cfg.dataset.image_transforms.enable else None
     )
 
-    if cfg.dataset.use_data_core or cfg.dataset.use_data_core_streaming:
+    if (
+        cfg.dataset.use_data_core
+        or cfg.dataset.use_data_core_streaming
+        or cfg.dataset.use_data_core_arrow
+    ):
         ds_meta = LeRobotDatasetMetadata(
             cfg.dataset.repo_id, root=cfg.dataset.root, revision=cfg.dataset.revision
         )
         delta_timestamps = resolve_delta_timestamps(cfg.policy, ds_meta)
 
-        if cfg.dataset.use_data_core_streaming:
+        if cfg.dataset.use_data_core_arrow:
+            from lerobot.datasets.data_core_arrow_dataset import DataCoreArrowDataset
+
+            dataset = DataCoreArrowDataset(
+                repo_id=cfg.dataset.repo_id,
+                root=cfg.dataset.root,
+                episodes=cfg.dataset.episodes,
+                delta_timestamps=delta_timestamps,
+                image_transforms=image_transforms,
+                tolerance_s=cfg.tolerance_s,
+                preload_episodes=cfg.dataset.preload_episodes,
+                raw_pixels=cfg.dataset.data_core_arrow_raw_pixels,
+                output_dtype="float32",
+            )
+        elif cfg.dataset.use_data_core_streaming:
             from lerobot.datasets.data_core_streaming_dataset import DataCoreStreamingDataset
 
             dataset = DataCoreStreamingDataset(

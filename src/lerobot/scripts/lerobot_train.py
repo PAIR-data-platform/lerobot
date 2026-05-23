@@ -388,16 +388,16 @@ def train(cfg: TrainPipelineConfig, accelerator: Accelerator | None = None):
         shuffle = True
         sampler = None
 
-    # Streaming mode: force num_workers=0 (FFmpeg hangs in forked workers).
-    # COW preload mode: use fork for cache sharing.
+    # data-core paths preload episodes (raw pixels or JPEG bytes) into a
+    # frozen cache before fork; workers read lock-free via COW. FFmpeg only
+    # runs in the main process during preload, never in forked workers.
     effective_workers = cfg.num_workers
-    mp_context = None
-    if cfg.dataset.use_data_core_streaming:
-        if cfg.num_workers > 0:
-            logging.info("DataCoreStreaming: overriding num_workers to 0 (FFmpeg not fork-safe)")
-        effective_workers = 0
-    elif cfg.dataset.use_data_core and cfg.num_workers > 0:
-        mp_context = "fork"
+    mp_context = "fork" if (
+        (cfg.dataset.use_data_core
+         or cfg.dataset.use_data_core_streaming
+         or cfg.dataset.use_data_core_arrow)
+        and cfg.num_workers > 0
+    ) else None
 
     dataloader = torch.utils.data.DataLoader(
         dataset,

@@ -41,6 +41,13 @@ class DatasetConfig:
     use_data_core_streaming: bool = False
     # Max episodes to keep in Rust LRU cache (None = unlimited)
     cache_limit: int | None = None
+    # Arrow path: DataCoreArrowDataset → Rust get_sample_raw. JPEG cache mode
+    # libjpeg-decodes per batch in Rust (rayon-parallel), no RAM ceiling.
+    use_data_core_arrow: bool = False
+    # If True, preload raw RGB pixels (~4 GB/ep @ 480×640 × 4 cams) — fastest but
+    # capped by RAM. If False (default), preload JPEG bytes (~119 MB/ep) and decode
+    # per-batch in Rust.
+    data_core_arrow_raw_pixels: bool = False
 
 
 @dataclass
