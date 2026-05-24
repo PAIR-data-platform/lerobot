@@ -14,6 +14,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import json
 import logging
 from pathlib import Path
 
@@ -46,6 +47,7 @@ class DataCoreDataset(torch.utils.data.Dataset):
         delta_timestamps: dict[str, list[float]] | None = None,
         tolerance_s: float = 1e-4,
         preload_episodes: int | None = None,
+        augmentations: list[dict] | None = None,
         **ignored_kwargs,
     ):
         self.repo_id = repo_id
@@ -56,6 +58,17 @@ class DataCoreDataset(torch.utils.data.Dataset):
 
         # Open with raw pixels for zero-copy COW caching
         self.lazy = data_core.LazyDataset.open(str(self.root)).with_raw_pixels()
+
+        # Register Rust-side augmentations (applied on the Arrow IR before the
+        # data crosses into Python). Order matters: each entry is a dict
+        # ``{"name": "...", "params": {...}}``; ``params`` is JSON-serialized
+        # and passed to ``LazyDataset.add_augmentation``.
+        if augmentations:
+            for aug in augmentations:
+                name = aug["name"]
+                params = aug.get("params", {})
+                self.lazy.add_augmentation(name, json.dumps(params))
+                logging.info(f"DataCoreDataset: registered aug '{name}' with params={params}")
 
         # Resolve delta timestamps → integer frame offsets
         if delta_timestamps is not None:
