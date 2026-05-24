@@ -388,6 +388,9 @@ def train(cfg: TrainPipelineConfig, accelerator: Accelerator | None = None):
         shuffle = True
         sampler = None
 
+    # Use fork multiprocessing for data-core COW cache sharing across workers
+    mp_context = "fork" if cfg.dataset.use_data_core and cfg.num_workers > 0 else None
+
     dataloader = torch.utils.data.DataLoader(
         dataset,
         num_workers=cfg.num_workers,
@@ -397,6 +400,7 @@ def train(cfg: TrainPipelineConfig, accelerator: Accelerator | None = None):
         pin_memory=device.type == "cuda",
         drop_last=False,
         prefetch_factor=2 if cfg.num_workers > 0 else None,
+        multiprocessing_context=mp_context,
     )
 
     # Prepare everything with accelerator

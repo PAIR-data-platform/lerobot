@@ -36,6 +36,12 @@ class DatasetConfig:
     video_backend: str = field(default_factory=get_safe_default_codec)
     streaming: bool = False
     use_data_core: bool = False
+    # Max episodes to preload into RAM when use_data_core=True (None = all)
+    preload_episodes: int | None = None
+    # Optional Rust-side augmentation preset applied on Arrow IR before the data
+    # crosses into Python. Currently supported: "fused_image" (color jitter +
+    # gaussian noise on the cameras detected from metadata). Empty = no aug.
+    data_core_aug_preset: str = ""
 
 
 @dataclass
