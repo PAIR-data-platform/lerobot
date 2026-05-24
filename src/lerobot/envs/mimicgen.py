@@ -218,15 +218,48 @@ class MimicGenEnv(gym.Env):
             camera_heights=self.observation_height,
             camera_widths=self.observation_width,
             reward_shaping=False,
-            # Disable collision-mesh rendering so the Panda's collision geoms
-            # don't show through visual meshes as yellow/green/blue patches in
-            # eval video. See ARISE-Initiative/robosuite#636 and the wandb
-            # eval frame from Mrinal's Coffee_D0 baseline.
+            # render_collision_mesh / render_visual_mesh exist as kwargs but
+            # robosuite 1.4.1's _reset_internal sets them in a way that doesn't
+            # stick on the offscreen render context actually used by
+            # sim.render() — eval videos still showed collision geoms
+            # overlapping visual geoms (yellow/green/blue Panda). The explicit
+            # vopt fixup below is what actually works.
             render_collision_mesh=False,
             render_visual_mesh=True,
         )
         env.reset()
         return env
+
+    def _fix_render_vopt(self):
+        """Workaround for robosuite 1.4.1 offscreen-renderer vopt bug.
+
+        Robosuite's _reset_internal sets vopt.geomgroup on the offscreen
+        render context, but in practice the context used by sim.render()
+        ends up with all groups enabled. Collision geoms then render on top
+        of visual geoms as colored patches on the Panda. See
+        ARISE-Initiative/robosuite#636 and wandb eval frames from Mrinal's
+        Coffee_D0 baseline.
+
+        Force a render to ensure the offscreen context exists, then set
+        geomgroup explicitly. Robosuite's XML convention: group 0 = collision,
+        group 1 = visual. This must be called after every robosuite reset
+        because reset overwrites vopt.
+        """
+        try:
+            _ = self._env.sim.render(
+                camera_name=self.camera_name[0],
+                width=self.observation_width,
+                height=self.observation_height,
+            )
+            ctx = self._env.sim._render_context_offscreen
+            if ctx is not None:
+                ctx.vopt.geomgroup[0] = 0  # collision off
+                ctx.vopt.geomgroup[1] = 1  # visual on
+                for i in range(2, 6):
+                    ctx.vopt.geomgroup[i] = 0
+        except Exception as e:
+            import warnings
+            warnings.warn(f"mimicgen: failed to fix offscreen render vopt: {e}")
 
     def _format_raw_obs(self, raw_obs: dict) -> RobotObservation:
         """Extract and restructure raw robosuite observations."""
@@ -305,6 +338,10 @@ class MimicGenEnv(gym.Env):
                 raw_obs, _, _, _ = self._env.step(get_mimicgen_dummy_action())
         finally:
             np.random.set_state(np_state)
+
+        # robosuite's reset overwrites the offscreen render context's vopt;
+        # re-apply our visual-geom-only setting so eval renders look correct.
+        self._fix_render_vopt()
 
         observation = self._format_raw_obs(raw_obs)
         info = {"is_success": False, "init_state_idx": idx}
