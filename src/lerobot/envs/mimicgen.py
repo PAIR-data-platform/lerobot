@@ -339,12 +339,19 @@ class MimicGenEnv(gym.Env):
         return observation, reward, terminated, truncated, info
 
     def render(self):
-        img = self._env.sim.render(
-            height=self.render_height,
-            width=self.render_width,
-            camera_name=self.camera_name[0],
-        )
-        return img[::-1]  # robosuite renders upside-down
+        # Render via robosuite's offscreen obs path (the same one that produces
+        # training observations) so robot textures/materials apply. Raw
+        # `sim.render()` bypasses robosuite's render-context setup and falls
+        # back to default MuJoCo geom rgba for textured assets (Panda arm /
+        # gripper), producing a miscolored robot in eval videos while scene
+        # objects render fine.
+        #
+        # Note: this returns the obs-resolution image. render_height/width
+        # overrides for higher-res videos are not honored on this path; if
+        # those are needed, reconfigure the robosuite camera dims at init.
+        raw_obs = self._env._get_observations()
+        img_key = f"{self.camera_name[0]}_image"
+        return np.ascontiguousarray(raw_obs[img_key][::-1])  # robosuite renders upside-down
 
     def close(self):
         self._env.close()
