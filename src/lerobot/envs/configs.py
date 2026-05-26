@@ -287,7 +287,7 @@ class LiberoEnv(EnvConfig):
             LIBERO_KEY_JOINTS_POS: f"{OBS_STATE}.joint_pos",
             LIBERO_KEY_JOINTS_VEL: f"{OBS_STATE}.joint_vel",
             LIBERO_KEY_PIXELS_AGENTVIEW: f"{OBS_IMAGES}.image",
-            LIBERO_KEY_PIXELS_EYE_IN_HAND: f"{OBS_IMAGES}.image2",
+            LIBERO_KEY_PIXELS_EYE_IN_HAND: f"{OBS_IMAGES}.wrist_image",
         }
     )
     control_mode: str = "relative"  # or "absolute"

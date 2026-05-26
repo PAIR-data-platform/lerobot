@@ -129,15 +129,15 @@ class LiberoEnv(gym.Env):
             camera_name
         )  # agentview_image (main) or robot0_eye_in_hand_image (wrist)
 
-        # Map raw camera names to "image1" and "image2".
+        # Map raw camera names to LeRobot observation keys.
         # The preprocessing step `preprocess_observation` will then prefix these with `.images.*`,
-        # following the LeRobot convention (e.g., `observation.images.image`, `observation.images.image2`).
+        # following the LeRobot convention (e.g., `observation.images.image`, `observation.images.wrist_image`).
         # This ensures the policy consistently receives observations in the
         # expected format regardless of the original camera naming.
         if camera_name_mapping is None:
             camera_name_mapping = {
                 "agentview_image": "image",
-                "robot0_eye_in_hand_image": "image2",
+                "robot0_eye_in_hand_image": "wrist_image",
             }
         self.camera_name_mapping = camera_name_mapping
         self.num_steps_wait = num_steps_wait
