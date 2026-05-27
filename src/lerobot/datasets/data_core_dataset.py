@@ -18,6 +18,7 @@ import json
 import logging
 from pathlib import Path
 
+import pandas as pd
 import torch
 
 import data_core
@@ -117,6 +118,14 @@ class DataCoreDataset(torch.utils.data.Dataset):
             frame_indices.extend(range(start, safe_end))
         self._frame_indices = frame_indices
 
+        # Build episode_index → task_index map from parquet data (read-only, two columns).
+        # Needed to correctly populate "task" in __getitem__ for multi-task datasets.
+        self._ep_to_task_idx: dict[int, int] = {}
+        for parquet_file in sorted((self.root / "data").rglob("*.parquet")):
+            df = pd.read_parquet(parquet_file, columns=["episode_index", "task_index"])
+            for row in df.drop_duplicates("episode_index").itertuples(index=False):
+                self._ep_to_task_idx[int(row.episode_index)] = int(row.task_index)
+
         # Preload episodes into frozen COW cache
         logging.info(f"DataCoreDataset: preloading {len(self.episodes)} episodes with raw pixels...")
         self.lazy.preload_episodes(self.episodes)
@@ -188,9 +197,12 @@ class DataCoreDataset(torch.utils.data.Dataset):
         # --- Scalar metadata ---
         result["timestamp"] = torch.tensor(sample.get("timestamp", 0.0), dtype=torch.float32)
         result["frame_index"] = torch.tensor(sample.get("frame_index", 0), dtype=torch.int64)
-        result["episode_index"] = torch.tensor(sample.get("episode_index", 0), dtype=torch.int64)
+        ep_idx = int(sample.get("episode_index", 0))
+        result["episode_index"] = torch.tensor(ep_idx, dtype=torch.int64)
         result["index"] = torch.tensor(global_idx, dtype=torch.int64)
-        result["task_index"] = torch.tensor(0, dtype=torch.int64)
+        task_idx = self._ep_to_task_idx.get(ep_idx, 0)
+        result["task_index"] = torch.tensor(task_idx, dtype=torch.int64)
+        result["task"] = self.meta.tasks.iloc[task_idx].name
 
         # --- Action padding mask ---
         if self.delta_indices and "action" in self.delta_indices:
