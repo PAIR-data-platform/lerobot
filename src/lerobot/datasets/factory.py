@@ -84,46 +84,66 @@ def make_dataset(cfg: TrainPipelineConfig) -> LeRobotDataset | MultiLeRobotDatas
         ImageTransforms(cfg.dataset.image_transforms) if cfg.dataset.image_transforms.enable else None
     )
 
-    if cfg.dataset.use_data_core:
-        from lerobot.datasets.data_core_dataset import DataCoreDataset
-
+    if cfg.dataset.use_data_core or cfg.dataset.use_data_core_arrow:
         ds_meta = LeRobotDatasetMetadata(
             cfg.dataset.repo_id, root=cfg.dataset.root, revision=cfg.dataset.revision
         )
         delta_timestamps = resolve_delta_timestamps(cfg.policy, ds_meta)
 
-        # Build the Rust-side augmentation list from the preset string.
-        # Image-shape-preserving augs only — anything that resizes (crop) needs
-        # the policy input shape configured to match, which we don't do here.
-        augmentations = None
-        if cfg.dataset.data_core_aug_preset == "fused_image":
-            cam_bare = [k.removeprefix("observation.images.") for k in ds_meta.camera_keys]
-            augmentations = [{
-                "name": "fused_image",
-                "params": {
-                    "camera_names": cam_bare,
-                    "brightness": 0.1,
-                    "contrast": 0.1,
-                    "saturation": 0.1,
-                    "noise_std": 0.02,
-                },
-            }]
-        elif cfg.dataset.data_core_aug_preset:
-            raise ValueError(
-                f"Unknown data_core_aug_preset: {cfg.dataset.data_core_aug_preset!r} "
-                "(supported: '', 'fused_image')"
-            )
+        if cfg.dataset.use_data_core_arrow:
+            from lerobot.datasets.data_core_arrow_dataset import DataCoreArrowDataset
 
-        dataset = DataCoreDataset(
-            repo_id=cfg.dataset.repo_id,
-            root=cfg.dataset.root,
-            episodes=cfg.dataset.episodes,
-            delta_timestamps=delta_timestamps,
-            image_transforms=image_transforms,
-            tolerance_s=cfg.tolerance_s,
-            preload_episodes=cfg.dataset.preload_episodes,
-            augmentations=augmentations,
-        )
+            if cfg.dataset.data_core_aug_preset:
+                raise ValueError(
+                    "data_core_aug_preset is not supported with use_data_core_arrow; "
+                    "use use_data_core for Rust-side augmentation."
+                )
+            dataset = DataCoreArrowDataset(
+                repo_id=cfg.dataset.repo_id,
+                root=cfg.dataset.root,
+                episodes=cfg.dataset.episodes,
+                delta_timestamps=delta_timestamps,
+                image_transforms=image_transforms,
+                tolerance_s=cfg.tolerance_s,
+                preload_episodes=cfg.dataset.preload_episodes,
+                raw_pixels=cfg.dataset.data_core_arrow_raw_pixels,
+                output_dtype="float32",
+            )
+        else:
+            from lerobot.datasets.data_core_dataset import DataCoreDataset
+
+            # Build the Rust-side augmentation list from the preset string.
+            # Image-shape-preserving augs only — anything that resizes (crop) needs
+            # the policy input shape configured to match, which we don't do here.
+            augmentations = None
+            if cfg.dataset.data_core_aug_preset == "fused_image":
+                cam_bare = [k.removeprefix("observation.images.") for k in ds_meta.camera_keys]
+                augmentations = [{
+                    "name": "fused_image",
+                    "params": {
+                        "camera_names": cam_bare,
+                        "brightness": 0.1,
+                        "contrast": 0.1,
+                        "saturation": 0.1,
+                        "noise_std": 0.02,
+                    },
+                }]
+            elif cfg.dataset.data_core_aug_preset:
+                raise ValueError(
+                    f"Unknown data_core_aug_preset: {cfg.dataset.data_core_aug_preset!r} "
+                    "(supported: '', 'fused_image')"
+                )
+
+            dataset = DataCoreDataset(
+                repo_id=cfg.dataset.repo_id,
+                root=cfg.dataset.root,
+                episodes=cfg.dataset.episodes,
+                delta_timestamps=delta_timestamps,
+                image_transforms=image_transforms,
+                tolerance_s=cfg.tolerance_s,
+                preload_episodes=cfg.dataset.preload_episodes,
+                augmentations=augmentations,
+            )
         if cfg.dataset.use_imagenet_stats:
             for key in dataset.meta.camera_keys:
                 for stats_type, stats in IMAGENET_STATS.items():

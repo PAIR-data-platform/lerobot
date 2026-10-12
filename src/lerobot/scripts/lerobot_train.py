@@ -388,8 +388,13 @@ def train(cfg: TrainPipelineConfig, accelerator: Accelerator | None = None):
         shuffle = True
         sampler = None
 
-    # Use fork multiprocessing for data-core COW cache sharing across workers
-    mp_context = "fork" if cfg.dataset.use_data_core and cfg.num_workers > 0 else None
+    # data-core paths preload episodes (raw pixels or JPEG bytes) into a
+    # frozen cache before fork; workers read lock-free via COW. FFmpeg only
+    # runs in the main process during preload, never in forked workers.
+    mp_context = "fork" if (
+        (cfg.dataset.use_data_core or cfg.dataset.use_data_core_arrow)
+        and cfg.num_workers > 0
+    ) else None
 
     dataloader = torch.utils.data.DataLoader(
         dataset,

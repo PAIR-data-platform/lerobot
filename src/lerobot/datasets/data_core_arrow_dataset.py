@@ -17,6 +17,18 @@ transfer than f32). This does **not** plug into lerobot's stock training loop �
 benchmarks (e.g. ``scripts/d6_arrow_microbench.py``) or after adding GPU-side
 conversion to the trainer's device-transfer step.
 
+Two preload modes (see ``raw_pixels`` ctor arg):
+
+- ``raw_pixels=False`` (default) — Episodes preloaded as **JPEG bytes**
+  (~119 MB/ep at 480×640×4 cams; full 50-ep aloha fits in ~6 GB). Per-batch,
+  Rust's ``get_sample_raw`` rayon-parallel libjpeg-decodes the requested
+  frames into HWC uint8 bytes. No RAM ceiling.
+
+- ``raw_pixels=True`` — Episodes preloaded as **raw RGB pixels** (~4 GB/ep at
+  480×640×4 cams; ~7 of 50 aloha episodes fit on a 32 GB box). Per-batch,
+  ``get_sample_raw`` returns the cached bytes directly with no decode. Fastest
+  per-batch latency.
+
 Background: an earlier ``mode="f32"`` variant called ``get_frame_windowed_f32``
 to convert HWC→CHW + uint8→f32 + /255 in Rust. It was a regression vs the
 existing COW path because the 4× larger tensor dominated H2D bandwidth. That
@@ -38,9 +50,9 @@ from lerobot.utils.constants import HF_LEROBOT_HOME
 class DataCoreArrowDataset(torch.utils.data.Dataset):
     """Returns uint8 CHW images for downstream GPU-side conversion.
 
-    Requires ``with_raw_pixels()`` so ``get_sample_raw`` finds the ``.rgb``
-    columns. Raw-pixel preload is large (~4 GB per episode at 480×640×4 cams);
-    cap ``preload_episodes`` to fit RAM.
+    ``raw_pixels=False`` (default): JPEG cache, Rust libjpeg decode per batch,
+    no RAM ceiling. ``raw_pixels=True``: raw RGB pixel cache, ~4 GB/ep at
+    480×640×4 cams, cap ``preload_episodes`` to fit RAM.
     """
 
     def __init__(
@@ -52,15 +64,23 @@ class DataCoreArrowDataset(torch.utils.data.Dataset):
         delta_timestamps: dict[str, list[float]] | None = None,
         tolerance_s: float = 1e-4,
         preload_episodes: int | None = None,
+        raw_pixels: bool = False,
+        output_dtype: str = "uint8",
         **ignored_kwargs,
     ):
+        if output_dtype not in ("uint8", "float32"):
+            raise ValueError(f"output_dtype must be 'uint8' or 'float32', got {output_dtype!r}")
         self.repo_id = repo_id
         self.root = Path(root) if root else HF_LEROBOT_HOME / repo_id
         self.image_transforms = image_transforms
+        self.raw_pixels = raw_pixels
+        self.output_dtype = output_dtype
 
         self.meta = LeRobotDatasetMetadata(repo_id=repo_id, root=self.root)
 
-        self.lazy = data_core.LazyDataset.open(str(self.root)).with_raw_pixels()
+        self.lazy = data_core.LazyDataset.open(str(self.root))
+        if raw_pixels:
+            self.lazy = self.lazy.with_raw_pixels()
 
         if delta_timestamps is not None:
             check_delta_timestamps(delta_timestamps, self.meta.fps, tolerance_s)
@@ -100,8 +120,9 @@ class DataCoreArrowDataset(torch.utils.data.Dataset):
             frame_indices.extend(range(start, safe_end))
         self._frame_indices = frame_indices
 
+        mode_tag = "raw-pixel" if raw_pixels else "JPEG"
         logging.info(
-            f"DataCoreArrowDataset: preloading {len(self.episodes)} raw-pixel episodes..."
+            f"DataCoreArrowDataset: preloading {len(self.episodes)} {mode_tag} episodes..."
         )
         self.lazy.preload_episodes(self.episodes)
         logging.info("DataCoreArrowDataset: preload complete")
@@ -137,6 +158,11 @@ class DataCoreArrowDataset(torch.utils.data.Dataset):
             tensor = tensor.reshape(n_frames, h, w, 3).permute(0, 3, 1, 2).contiguous()
             if n_frames == 1:
                 tensor = tensor.squeeze(0)
+            if self.output_dtype == "float32":
+                # Trainer-compat: pay the CPU cast in the worker so downstream
+                # NormalizerProcessorStep receives float32 [0,1]. Trades the
+                # 4× PCIe-bandwidth win for drop-in trainer compatibility.
+                tensor = tensor.to(torch.float32).div_(255.0)
             if self.image_transforms is not None:
                 tensor = self.image_transforms(tensor)
             result[feature_key] = tensor
